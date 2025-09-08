@@ -11,10 +11,10 @@ import os
 import argparse
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QFileDialog, QLabel,
-                             QSplitter, QStatusBar, QToolBar, QAction,
-                             QComboBox, QSpinBox, QCheckBox, QGroupBox,
-                             QSlider, QMessageBox, QDoubleSpinBox)
+    QHBoxLayout, QPushButton, QFileDialog, QLabel,
+    QSplitter, QStatusBar, QToolBar, QAction,
+    QComboBox, QSpinBox, QCheckBox, QGroupBox,
+    QSlider, QMessageBox, QDoubleSpinBox)
 from PyQt5.QtCore import Qt, QPointF, pyqtSignal, pyqtSlot, QEvent
 from PyQt5.QtGui import QKeySequence
 import pyqtgraph as pg
@@ -24,9 +24,8 @@ from astropy.visualization import simple_norm
 import warnings
 warnings.filterwarnings('ignore')
 pg.setConfigOptions(antialias=True)
-
-min_bins_default   = 5  # minimum zoom in x = wavelength
-min_y_rows_default = 5  # minimum zoom in y for 2D rows
+min_bins_default = 5 # minimum zoom in x = wavelength
+min_y_rows_default = 5 # minimum zoom in y for 2D rows
 
 class RestFrameAxisItem(pg.AxisItem):
     """
@@ -65,15 +64,15 @@ class RestFrameAxisItem(pg.AxisItem):
             z = float(self._get_z()) if callable(self._get_z) else float(self._get_z)
         except Exception:
             z = 0.0
-        z = max(z, -0.99)  # avoid 1+z <= 0
+        z = max(z, -0.99) # avoid 1+z <= 0
 
         # observed μm -> rest Å
         lam_rest_min = (minVal / (1.0 + z)) * 1e4
         lam_rest_max = (maxVal / (1.0 + z)) * 1e4
         if lam_rest_max < lam_rest_min:
             lam_rest_min, lam_rest_max = lam_rest_max, lam_rest_min
-
         rng = max(lam_rest_max - lam_rest_min, 1e-12)
+
         # Choose target ~80 px per major tick
         approxNTicks = max(int(size / 80.0), 2)
         step = self._nice_step(rng / approxNTicks)
@@ -117,7 +116,7 @@ class RestFrameAxisItem(pg.AxisItem):
             z = float(self._get_z()) if callable(self._get_z) else float(self._get_z)
         except Exception:
             z = 0.0
-        z = max(z, -0.99)  # guard against 1+z <= 0
+        z = max(z, -0.99) # guard against 1+z <= 0
         rest = (np.array(values, dtype=float) / (1.0 + z)) * 1e4
         out = []
         for v in rest:
@@ -130,7 +129,6 @@ class RestFrameAxisItem(pg.AxisItem):
                 s = f"{v:.2f}"
             out.append(s)
         return out
-
 
 class SpectrumPlotWidget(pg.PlotWidget):
     """Custom plot widget with trackpad gesture support"""
@@ -153,7 +151,7 @@ class SpectrumPlotWidget(pg.PlotWidget):
         self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
         self.setMouseTracking(True)
         try:
-            self.grabGesture(Qt.PinchGesture)  # native pinch for Y-zoom
+            self.grabGesture(Qt.PinchGesture) # native pinch for Y-zoom
         except Exception:
             pass
 
@@ -162,8 +160,8 @@ class SpectrumPlotWidget(pg.PlotWidget):
         self.data_x_max = None
         self.data_y_min = None
         self.data_y_max = None
-        self.min_x_range = None  # minimum allowed x-range (~few bins)
-        self.min_y_rows = None   # minimum allowed y-range in rows (2D only)
+        self.min_x_range = None # minimum allowed x-range (~few bins)
+        self.min_y_rows = None # minimum allowed y-range in rows (2D only)
 
         # Track mouse position for zoom centering
         self.mouse_x_pos = None
@@ -172,7 +170,6 @@ class SpectrumPlotWidget(pg.PlotWidget):
         # Alt-drag state
         self._alt_drag_start = None
         self._alt_region = None
-
         # Connect range change signal
         self.getViewBox().sigRangeChanged.connect(self.on_range_changed)
 
@@ -186,7 +183,6 @@ class SpectrumPlotWidget(pg.PlotWidget):
         if min_dx is not None:
             self.min_x_range = float(min_dx) * max(int(min_bins), 1)
         self.min_y_rows = int(min_y_rows) if (min_y_rows is not None) else None
-
         # Apply hard limits at the ViewBox level so panning can't escape
         vb = self.getViewBox()
         lim_kwargs = {}
@@ -262,13 +258,11 @@ class SpectrumPlotWidget(pg.PlotWidget):
                     xmin = max(self.data_x_min, cx - 0.5 * self.min_x_range)
                     xmax = min(self.data_x_max, cx + 0.5 * self.min_x_range)
                 vb.setXRange(xmin, xmax, padding=0)
-
             if self.data_y_min is not None and self.data_y_max is not None:
                 ymin, ymax = vb.viewRange()[1]
                 ymin = max(ymin, self.data_y_min)
                 ymax = min(ymax, self.data_y_max)
                 vb.setYRange(ymin, ymax, padding=0)
-
             xmin, xmax = vb.viewRange()[0]
             if not self.is_2d:
                 self.x_range_changed.emit(xmin, xmax)
@@ -308,9 +302,8 @@ class SpectrumPlotWidget(pg.PlotWidget):
         """
         modifiers = QApplication.keyboardModifiers()
         delta = ev.angleDelta()
-        dx = delta.x() / 120.0  # Horizontal scroll
-        dy = delta.y() / 120.0  # Vertical scroll
-
+        dx = delta.x() / 120.0 # Horizontal scroll
+        dy = delta.y() / 120.0 # Vertical scroll
         vb = self.getViewBox()
         xmin, xmax = vb.viewRange()[0]
         ymin, ymax = vb.viewRange()[1]
@@ -333,7 +326,6 @@ class SpectrumPlotWidget(pg.PlotWidget):
                     new_x_range = (xmax - xmin) * scale_factor
                     new_xmin = x_center - new_x_range / 2
                     new_xmax = x_center + new_x_range / 2
-
                 if self.data_x_min is not None and self.data_x_max is not None:
                     new_xmin = max(new_xmin, self.data_x_min)
                     new_xmax = min(new_xmax, self.data_x_max)
@@ -364,19 +356,22 @@ class SpectrumPlotWidget(pg.PlotWidget):
         elif modifiers == Qt.ControlModifier:
             # Ctrl + Scroll => Scale Y (fallback for pinch) — both 1D & 2D, cursor-anchored
             if abs(dy) > 0:
-                scale_factor = 1.02 ** (-dy)  # gentle
+                scale_factor = 1.02 ** (-dy) # gentle
                 y_cursor = self.mouse_y_pos if self.mouse_y_pos is not None else 0.5 * (ymin + ymax)
                 y_range = ymax - ymin
                 new_y_range = y_range * scale_factor
+
                 # Min 3 screen px in data units
                 px2data = y_range / view_h
                 min_range = max(3.0 * px2data, 1e-12)
                 if new_y_range < min_range:
                     new_y_range = min_range
+
                 # Keep cursor value fixed in screen by preserving its relative fraction
                 frac = 0.0 if y_range == 0 else (y_cursor - ymin) / y_range
                 new_ymin = y_cursor - frac * new_y_range
                 new_ymax = new_ymin + new_y_range
+
                 # Clamp to data limits if present
                 if self.data_y_min is not None and self.data_y_max is not None:
                     if new_ymin < self.data_y_min:
@@ -412,6 +407,7 @@ class SpectrumPlotWidget(pg.PlotWidget):
                     vb = self.getViewBox()
                     (xmin, xmax), (ymin, ymax) = vb.viewRange()
                     view_h = max(self.viewport().height(), 1)
+
                     # Pinch center in scene coords -> view coords
                     center_scene = g.centerPoint()
                     if center_scene is not None:
@@ -419,17 +415,21 @@ class SpectrumPlotWidget(pg.PlotWidget):
                         y_cursor = center_view.y()
                     else:
                         y_cursor = 0.5 * (ymin + ymax)
+
                     # Compute new Y range (inverse scaling for typical pinch semantics)
                     new_range = (ymax - ymin) / max(scale, 1e-6)
+
                     # Enforce min 3 px in data units
                     px2data = (ymax - ymin) / view_h
                     min_range = max(3.0 * px2data, 1e-12)
                     if new_range < min_range:
                         new_range = min_range
+
                     # Preserve the cursor's relative fraction in screen
                     frac = 0.0 if (ymax - ymin) == 0 else (y_cursor - ymin) / (ymax - ymin)
                     new_ymin = y_cursor - frac * new_range
                     new_ymax = new_ymin + new_range
+
                     # Clamp to data limits
                     if self.data_y_min is not None and self.data_y_max is not None:
                         if new_ymin < self.data_y_min:
@@ -444,7 +444,6 @@ class SpectrumPlotWidget(pg.PlotWidget):
                 except Exception:
                     pass
         return super().event(ev)
-
 
 class FITSSpectraViewer(QMainWindow):
     """Main application window for FITS spectra viewing"""
@@ -474,7 +473,10 @@ class FITSSpectraViewer(QMainWindow):
         # For cursor tracking
         self.cursor_line = None
         self.cursor_dot = None
-        self.coord_label = None
+
+        # Two-row status (labels)
+        self.s2d_label = None
+        self.x1d_label = None
 
         self.init_ui()
 
@@ -514,7 +516,6 @@ class FITSSpectraViewer(QMainWindow):
             x1d_flux = np.concatenate([x1d_flux[:igap+1], x1d_fill, x1d_flux[igap+1:]])
             x1d_fluxerr = np.concatenate([x1d_fluxerr[:igap+1], x1d_fill, x1d_fluxerr[igap+1:]])
         return x1d_wave, x1d_flux, x1d_fluxerr, s2d_data
-
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle('FITS Spectra Viewer')
@@ -558,11 +559,11 @@ class FITSSpectraViewer(QMainWindow):
 
         # Set colormap
         colors = [
-            (0, 0, 180),   # Dark blue
+            (0, 0, 180),  # Dark blue
             (100, 150, 255),  # Light blue
             (255, 255, 255),  # White
             (255, 150, 100),  # Light red
-            (180, 0, 0)    # Dark red
+            (180, 0, 0) # Dark red
         ]
         cmap = pg.ColorMap(pos=np.linspace(0.0, 1.0, len(colors)),
                            color=colors)
@@ -572,6 +573,12 @@ class FITSSpectraViewer(QMainWindow):
         # connect 2D hover to update coordinates
         try:
             self.plot_2d.scene().sigMouseMoved.connect(self._on_2d_mouse_moved)
+        except Exception:
+            pass
+
+        # Also clear indicators when leaving the plot widgets
+        try:
+            self.plot_2d.viewport().installEventFilter(self)
         except Exception:
             pass
 
@@ -585,7 +592,6 @@ class FITSSpectraViewer(QMainWindow):
         self.plot_1d = SpectrumPlotWidget()
         # Sync x axes: 1D -> 2D
         self.plot_1d.x_range_changed.connect(self.sync_x_range_to_2d)
-
         # Track ranges for nav stack
         try:
             self.plot_1d.getViewBox().sigRangeChanged.connect(self._on_any_range_changed)
@@ -593,13 +599,14 @@ class FITSSpectraViewer(QMainWindow):
         except Exception:
             pass
 
-        # Cursor line and dot
-        self.cursor_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('y', width=1))
-        self.cursor_dot = pg.ScatterPlotItem(size=8, brush='y', pen='w')
+        # Cursor line and dot (green)
+        self.cursor_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('g', width=1))
+        self.cursor_dot  = pg.ScatterPlotItem(size=8, brush='g', pen='w')
         self.plot_1d.addItem(self.cursor_line)
         self.plot_1d.addItem(self.cursor_dot)
         self.cursor_line.hide()
         self.cursor_dot.hide()
+
         splitter.addWidget(self.plot_1d)
 
         # Alt-selection: set Y-range on 1D
@@ -609,20 +616,43 @@ class FITSSpectraViewer(QMainWindow):
         except Exception:
             pass
 
+        # Connect 1D hover (this was missing -> 1D hover appeared broken)
+        try:
+            self.plot_1d.scene().sigMouseMoved.connect(self._on_1d_mouse_moved)
+        except Exception:
+            pass
+        try:
+            self.plot_1d.viewport().installEventFilter(self)
+        except Exception:
+            pass
+
         # Set splitter sizes (1:3 ratio)
         splitter.setSizes([225, 675])
         layout.addWidget(splitter)
 
-        # Status bar
+        # Status bar with two-row values
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+        # Two labels in a small container
+        self.s2d_label = QLabel("")  # top row
+        self.x1d_label = QLabel("")  # bottom row
+        mono_css = "QLabel { background-color: #f0f0f0; padding: 3px 6px; }"
+        self.s2d_label.setStyleSheet(mono_css)
+        self.x1d_label.setStyleSheet(mono_css)
+
+        status_container = QWidget()
+        vb = QVBoxLayout(status_container)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(0)
+        vb.addWidget(self.s2d_label)
+        vb.addWidget(self.x1d_label)
+
+        self.status_bar.addPermanentWidget(status_container, 1)
         self.status_bar.showMessage('Ready. Use File menu to load FITS data.')
 
-        # Coordinate label
-        self.coord_label = QLabel("Wavelength: --- μm, Flux: --- Jy")
-        self.coord_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 5px; }")
-        self.coord_label.setMinimumWidth(250)
-        self.status_bar.addPermanentWidget(self.coord_label)
+        # Initialize empty display
+        self._update_status_clear()
 
     def create_toolbar(self):
         """Create application toolbar"""
@@ -646,8 +676,8 @@ class FITSSpectraViewer(QMainWindow):
         autoscale_action.setShortcut('A')
         autoscale_action.triggered.connect(self.autoscale)
         toolbar.addAction(autoscale_action)
-
         toolbar.addSeparator()
+
         back_action = QAction('Back', self)
         back_action.setShortcut('Alt+Left')
         back_action.triggered.connect(self.nav_back)
@@ -777,16 +807,17 @@ class FITSSpectraViewer(QMainWindow):
             self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data = \
                 self.expand_wavelength_gap(self.x1d_wave, self.x1d_flux, self.x1d_fluxerr,
                                            self.s2d_data, expand_wavelength_gap=True)
-
         self.update_display()
 
-        # Update status
+        # Update status (filenames)
         status_msg = []
         if self.current_s2d_file:
             status_msg.append(f"S2D: {os.path.basename(self.current_s2d_file)}")
         if self.current_x1d_file:
             status_msg.append(f"X1D: {os.path.basename(self.current_x1d_file)}")
-        self.status_bar.showMessage("  ".join(status_msg))
+        self.status_bar.showMessage(" ".join(status_msg), 5000)
+        # Reset the value rows to placeholders until hover
+        self._update_status_clear()
 
     def load_s2d_data(self, file_path):
         """Load 2D spectrum data"""
@@ -841,8 +872,8 @@ class FITSSpectraViewer(QMainWindow):
         ystart = max(0, y_center - extract_width // 2)
         ystop = min(ny, y_center + extract_width // 2)
         self.x1d_flux = np.nansum(self.s2d_data[ystart:ystop, :], axis=0)
-        self.x1d_wave = np.linspace(1.0, 5.5, nx)  # Default wavelength range
-        self.x1d_fluxerr = np.abs(self.x1d_flux) * 0.1  # 10% error estimate
+        self.x1d_wave = np.linspace(1.0, 5.5, nx) # Default wavelength range
+        self.x1d_fluxerr = np.abs(self.x1d_flux) * 0.1 # 10% error estimate
 
         # Expand wavelength gaps so 1D and 2D align
         try:
@@ -892,7 +923,7 @@ class FITSSpectraViewer(QMainWindow):
                 med_dx = None
             self.plot_2d.set_data_limits(self._x_edges[0], self._x_edges[-1], 0, ny,
                                          min_dx=med_dx, min_bins=min_bins_default, min_y_rows=min_y_rows_default)
-            self.plot_2d.setYRange(0, ny, padding=0)  # Fixed initial Y range
+            self.plot_2d.setYRange(0, ny, padding=0) # Fixed initial Y range
 
         # Update 1D display (as steps using edges, no rebin of flux)
         if self.x1d_flux is not None and self.x1d_wave is not None:
@@ -920,7 +951,7 @@ class FITSSpectraViewer(QMainWindow):
                         self.plot_1d.removeItem(self.err_curve)
                     except Exception:
                         pass
-                    self.err_curve = None
+                self.err_curve = None
 
             # Zero line as step
             zeros = np.zeros_like(self.x1d_flux)
@@ -1042,39 +1073,201 @@ class FITSSpectraViewer(QMainWindow):
             xmin, xmax = self.plot_1d.getViewBox().viewRange()[0]
             self.sync_x_range_to_2d(xmin, xmax)
 
-    def on_mouse_moved(self, pos):
-        """Update cursor position and coordinates"""
-        if self.x1d_wave is None or self.x1d_flux is None:
-            return
-        mouse_point = self.plot_1d.getViewBox().mapSceneToView(pos)
-        x = mouse_point.x()
-        if x >= self.x1d_wave.min() and x <= self.x1d_wave.max():
-            idx = np.argmin(np.abs(self.x1d_wave - x))
-            wave = self.x1d_wave[idx]
-            flux = self.x1d_flux[idx]
-            # Center yellow line on the step center
-            self.cursor_line.setPos(wave)
-            self.cursor_dot.setData([wave], [flux])
-            self.cursor_line.show()
-            self.cursor_dot.show()
-            if not np.isnan(flux):
-                self.coord_label.setText(f"Wavelength: {wave:.3f} μm, Flux: {flux:.3e} Jy")
-            else:
-                self.coord_label.setText(f"Wavelength: {wave:.3f} μm, Flux: ---")
+    # ---------- HOVER & STATUS ROWS ----------
+
+    def _basename_or_dash(self, path):
+        return os.path.basename(path) if path else "—"
+
+    def _rest_from_obs(self, lam_obs_um):
+        """Convert observed μm to rest Å given current z."""
+        try:
+            z = float(self.z_input.value()) if self.z_input else 0.0
+        except Exception:
+            z = 0.0
+        z = max(z, -0.99)
+        return (lam_obs_um / (1.0 + z)) * 1e4
+
+    def _update_status(self, obs_um=None, flux=None, y=None, x=None, val2d=None):
+        """Set two-line status text. Use '—' for any missing field."""
+        s2d_name = self._basename_or_dash(self.current_s2d_file)
+        x1d_name = self._basename_or_dash(self.current_x1d_file)
+
+        if obs_um is None:
+            rest_ang_str = "—"
         else:
+            rest_ang = self._rest_from_obs(obs_um)
+            # formatting: Å integer if large, else 1 decimal
+            if abs(rest_ang) >= 1000:
+                rest_ang_str = f"{rest_ang:,.0f} Å"
+            elif abs(rest_ang) >= 100:
+                rest_ang_str = f"{rest_ang:.1f} Å"
+            else:
+                rest_ang_str = f"{rest_ang:.2f} Å"
+
+        if (y is None) or (x is None) or (val2d is None) or (not np.isfinite(val2d)):
+            s2d_val_str = "2D[y,x]: —"
+        else:
+            s2d_val_str = f"2D[y={y:d}, x={x:d}]: {val2d:.4g}"
+
+        if obs_um is None:
+            obs_str = "observed λ: —"
+        else:
+            obs_str = f"observed λ: {obs_um:.6f} μm"
+
+        if (flux is None) or (not np.isfinite(flux)):
+            flux_str = "flux: —"
+        else:
+            flux_str = f"flux: {flux:.4g} Jy"
+
+        self.s2d_label.setText(f"S2D: {s2d_name}    rest wavelength: {rest_ang_str}    {s2d_val_str}")
+        self.x1d_label.setText(f"X1D: {x1d_name}    {obs_str}    {flux_str}")
+
+    def _update_status_clear(self):
+        """Clear values but keep filenames visible."""
+        self._update_status(obs_um=None, flux=None, y=None, x=None, val2d=None)
+
+    def _show_cursor_at(self, wave_um, flux_val):
+        """Move & show the green cursor line+dot on the 1D plot."""
+        try:
+            if wave_um is None or not np.isfinite(wave_um):
+                return
+            self.cursor_line.setPos(wave_um)
+            if (flux_val is not None) and np.isfinite(flux_val):
+                self.cursor_dot.setData([wave_um], [flux_val])
+                self.cursor_dot.show()
+            else:
+                # still show the line, hide dot if flux is NaN
+                self.cursor_dot.hide()
+            self.cursor_line.show()
+        except Exception:
+            pass
+
+    def _hide_cursor(self):
+        try:
             self.cursor_line.hide()
             self.cursor_dot.hide()
-            self.coord_label.setText("Wavelength: --- μm, Flux: --- Jy")
+        except Exception:
+            pass
+
+    def _in_x_edges(self, x):
+        try:
+            return (x >= self._x_edges[0]) and (x <= self._x_edges[-1])
+        except Exception:
+            return False
+
+    def _on_1d_mouse_moved(self, pos):
+        """Hover handler for the 1D plot: show cursor and values only on data."""
+        if self.x1d_wave is None or self.x1d_flux is None:
+            return
+        try:
+            vb = self.plot_1d.getViewBox()
+            if not self.plot_1d.sceneBoundingRect().contains(pos):
+                # outside widget -> clear
+                self._hide_cursor()
+                self._update_status_clear()
+                return
+            mp = vb.mapSceneToView(pos)
+            x = mp.x()
+
+            # Only when hovering over the data range (by edges)
+            if (not np.isfinite(x)) or (not self._in_x_edges(x)):
+                self._hide_cursor()
+                self._update_status_clear()
+                return
+
+            # nearest index
+            ix = int(np.argmin(np.abs(self.x1d_wave - x)))
+            wave = float(self.x1d_wave[ix])
+            flux = float(self.x1d_flux[ix]) if ix < len(self.x1d_flux) else np.nan
+
+            # Update cursor on 1D
+            self._show_cursor_at(wave, flux)
+
+            # If 2D present, we can show the column sample (no y from 1D hover -> show —)
+            val2d = None
+            if self.s2d_data is not None:
+                ny, nx = self.s2d_data.shape
+                if 0 <= ix < nx:
+                    # y unknown here -> leave as None for status
+                    pass
+
+            # Update two-row status
+            self._update_status(obs_um=wave, flux=flux, y=None, x=ix, val2d=val2d)
+
+        except Exception:
+            # On error, clear
+            self._hide_cursor()
+            self._update_status_clear()
+
+    def _on_2d_mouse_moved(self, pos):
+        """Hover handler for the 2D image: show cursor & both 2D and 1D values only on data."""
+        try:
+            vb = self.plot_2d.getViewBox()
+            if not self.plot_2d.sceneBoundingRect().contains(pos):
+                self._hide_cursor()
+                self._update_status_clear()
+                return
+
+            mouse_point = vb.mapSceneToView(pos)
+            x = mouse_point.x()
+            y = mouse_point.y()
+
+            if (self.x1d_wave is None) or (self.s2d_data is None):
+                self._hide_cursor()
+                self._update_status_clear()
+                return
+
+            ny, nx = self.s2d_data.shape
+
+            # Must be inside x edges and inside [0, ny) rows
+            if (not np.isfinite(x)) or (not np.isfinite(y)) or (not self._in_x_edges(x)) or (y < 0) or (y >= ny):
+                self._hide_cursor()
+                self._update_status_clear()
+                return
+
+            # find nearest spectral index and integer row
+            ix = int(np.argmin(np.abs(self.x1d_wave - x)))
+            iy = int(np.clip(int(round(y)), 0, ny - 1))
+
+            # 2D value and 1D flux at that x
+            val = self.s2d_data[iy, ix]
+            flux = None
+            if self.x1d_flux is not None and ix < len(self.x1d_flux):
+                flux = float(self.x1d_flux[ix])
+
+            cx = float(self.x1d_wave[ix])  # center-of-bin x
+            # Update cursor on 1D
+            self._show_cursor_at(cx, flux)
+
+            # Update the two-row status (both rows populated)
+            self._update_status(obs_um=cx, flux=flux, y=iy, x=ix, val2d=val)
+
+        except Exception:
+            self._hide_cursor()
+            self._update_status_clear()
+
+    def eventFilter(self, obj, event):
+        """Clear cursor and values when leaving either plot, as requested."""
+        try:
+            if event.type() == QEvent.Leave:
+                self._hide_cursor()
+                self._update_status_clear()
+        except Exception:
+            pass
+        # continue normal processing
+        return False
+
+    # ---------- END HOVER & STATUS ROWS ----------
 
     def change_colormap(self, cmap_name):
         """Change 2D colormap"""
         if cmap_name == 'RdBu':
             colors = [
-                (0, 0, 180),  # Dark blue
-                (100, 150, 255),  # Light blue
-                (255, 255, 255),  # White
-                (255, 150, 100),  # Light red
-                (180, 0, 0)  # Dark red
+                (0, 0, 180), # Dark blue
+                (100, 150, 255), # Light blue
+                (255, 255, 255), # White
+                (255, 150, 100), # Light red
+                (180, 0, 0) # Dark red
             ]
             cmap = pg.ColorMap(pos=np.linspace(0.0, 1.0, len(colors)),
                                color=colors)
@@ -1097,41 +1290,9 @@ class FITSSpectraViewer(QMainWindow):
             self.plot_1d.setYRange(min(flux_min - margin, -margin),
                                    flux_max + margin, padding=0)
         self._push_nav_state()
-
-    def _on_2d_mouse_moved(self, pos):
-        # Map scene to view
-        try:
-            vb = self.plot_2d.getViewBox()
-            mouse_point = vb.mapSceneToView(pos)
-            x = mouse_point.x()
-            y = mouse_point.y()
-            if self.x1d_wave is not None and self.s2d_data is not None:
-                ix = np.argmin(np.abs(self.x1d_wave - x))
-                iy = int(round(y))
-                ny, nx = self.s2d_data.shape
-                if 0 <= ix < nx and 0 <= iy < ny:
-                    val = self.s2d_data[iy, ix]
-                    try:
-                        f1 = self.x1d_flux[ix] if self.x1d_flux is not None else np.nan
-                        self.coord_label.setText(f"λ: {x:.6f} Flux1D: {f1:.4g} 2D[{iy},{ix}]: {val:.4g}")
-                    except Exception:
-                        self.coord_label.setText(f"λ: {x:.6f}")
-                    # Move cursor on 1D to center of step
-                    try:
-                        if self.cursor_line is not None and self.cursor_dot is not None:
-                            cx = self.x1d_wave[ix]
-                            self.cursor_line.setPos(cx)
-                            self.cursor_line.show()
-                            if self.x1d_flux is not None and ix < len(self.x1d_flux):
-                                self.cursor_dot.setData([cx], [self.x1d_flux[ix]])
-                                self.cursor_dot.show()
-                    except Exception:
-                        pass
-                    return
-            # fallback
-            self.coord_label.setText(f"λ: {x:.6f}")
-        except Exception:
-            pass
+        # also clear hover indicators after reset
+        self._hide_cursor()
+        self._update_status_clear()
 
     def autoscale(self):
         """Autoscale displays"""
@@ -1146,14 +1307,12 @@ class FITSSpectraViewer(QMainWindow):
         except Exception:
             pass
 
-
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     viewer = FITSSpectraViewer()
     viewer.show()
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     import sys

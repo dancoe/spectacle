@@ -1,7 +1,20 @@
-# Spectrum Viewer
+# Spectacle Spectrum Viewer
+
+Smooth simple scrolling of 2D and 1D synced spectra.  
+What's in your spectra? See it all with spectacle.
 
 A lightweight interactive FITS spectrum viewer built with **PyQt5** and **pyqtgraph**.  
 It provides both 2D and 1D spectral visualization with smooth, responsive controls.
+
+---
+
+## Quick Start
+
+```bash
+pip install PyQt5 pyqtgraph astropy numpy
+python spectacle.py file_s2d.fits
+```
+Given JWST NIRSpec `s2d` and `x1d` files (2D and 1D spectra), just mention one, and spectacle will load them both.
 
 ---
 
@@ -44,8 +57,3 @@ It provides both 2D and 1D spectral visualization with smooth, responsive contro
 - Simple 1D extraction from 2D data (center rows)  
 
 ---
-
-## Requirements
-
-```bash
-pip install PyQt5 pyqtgraph astropy numpy
