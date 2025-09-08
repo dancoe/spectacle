@@ -13,12 +13,19 @@ Built originally for JWST NIRSpec MOS spectra, showing both 2D rectified spectra
 ```bash
 pip install PyQt5 pyqtgraph astropy numpy
 
-python spectacle.py file_s2d.fits
+python spectacle.py (...then load file from the GUI)
+
+python spectacle.py file_s2d.fits (or file_x1d.fits)
+
+python spectacle.py any_1d_spectrum.fits
 
 python spectacle.py jw02736-o007_s06355_nirspec_f290lp-g395m_s2d.fits 7.665 emission\ lines.txt
 ```
 
-Mention either the `s2d` or `x1d` file, and spectacle will find both, load them, and sync them.
+If you mention either an `s2d` or `x1d` file, spectacle will look for both, load them, and sync them.
+
+Or you can load any 1D FITS spectrum on its own.
+
 Optionally, include the redshift and an external file of emission lines to plot.
 (Currently suppressing Iron Fe and Argon Ar for clarity.)
 

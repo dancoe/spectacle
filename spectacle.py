@@ -558,6 +558,8 @@ class FITSSpectraViewer(QMainWindow):
         self.x1d_fluxerr = None
         self.current_s2d_file = None
         self.current_x1d_file = None
+        self.splitter = None
+        self.s2d_controls_widget = None
         # default redshift for rest-frame display
         self.z_input = None
         # first-time draw flag
@@ -658,7 +660,7 @@ class FITSSpectraViewer(QMainWindow):
         control_panel = self.create_control_panel()
         layout.addWidget(control_panel)
         # Splitter for 2D and 1D plots
-        splitter = QSplitter(Qt.Vertical)
+        self.splitter = QSplitter(Qt.Vertical)
 
         # 2D spectrum display (index domain)
         self.plot_2d = SpectrumPlotWidget(is_2d=True)
@@ -703,7 +705,7 @@ class FITSSpectraViewer(QMainWindow):
         ]
         cmap = pg.ColorMap(pos=np.linspace(0.0, 1.0, len(colors)), color=colors)
         self.image_item.setLookupTable(cmap.getLookupTable())
-        splitter.addWidget(self.plot_2d)
+        self.splitter.addWidget(self.plot_2d)
 
         # connect 2D hover to update coordinates
         try:
@@ -759,7 +761,7 @@ class FITSSpectraViewer(QMainWindow):
         self.cursor_line.hide()
         self.cursor_dot.hide()
 
-        splitter.addWidget(self.plot_1d)
+        self.splitter.addWidget(self.plot_1d)
 
         # Alt-selection: set Y-range on 1D
         try:
@@ -779,8 +781,8 @@ class FITSSpectraViewer(QMainWindow):
             pass
 
         # Set splitter sizes (1:3 ratio)
-        splitter.setSizes([225, 675])
-        layout.addWidget(splitter)
+        self.splitter.setSizes([225, 675])
+        layout.addWidget(self.splitter)
 
         # Status bar with two-row values
         self.status_bar = QStatusBar()
@@ -838,21 +840,27 @@ class FITSSpectraViewer(QMainWindow):
         main_layout = QHBoxLayout()
         # Left side controls
         left_layout = QHBoxLayout()
-        # Colormap selection for 2D
-        left_layout.addWidget(QLabel("Colormap:"))
+
+        # 2D Controls
+        self.s2d_controls_widget = QWidget()
+        s2d_layout = QHBoxLayout()
+        s2d_layout.setContentsMargins(0, 0, 0, 0)
+        s2d_layout.addWidget(QLabel("Colormap:"))
         self.cmap_combo = QComboBox()
         self.cmap_combo.addItems(['RdBu', 'viridis', 'plasma', 'inferno', 'magma', 'cividis'])
         self.cmap_combo.currentTextChanged.connect(self.change_colormap)
-        left_layout.addWidget(self.cmap_combo)
-        left_layout.addSpacing(14)
-        # Sigma clipping
-        left_layout.addWidget(QLabel("Sigma Clip:"))
+        s2d_layout.addWidget(self.cmap_combo)
+        s2d_layout.addSpacing(14)
+        s2d_layout.addWidget(QLabel("Sigma Clip:"))
         self.sigma_spin = QSpinBox()
         self.sigma_spin.setRange(1, 10)
         self.sigma_spin.setValue(5)
         self.sigma_spin.valueChanged.connect(self.update_display)
-        left_layout.addWidget(self.sigma_spin)
+        s2d_layout.addWidget(self.sigma_spin)
+        self.s2d_controls_widget.setLayout(s2d_layout)
+        left_layout.addWidget(self.s2d_controls_widget)
         left_layout.addSpacing(14)
+
         # Show error bars
         self.show_errors_check = QCheckBox("Show Uncertainty")
         self.show_errors_check.setChecked(True)
@@ -917,39 +925,71 @@ class FITSSpectraViewer(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load FITS file:\n{str(e)}")
 
     def load_fits_pair(self, file_path):
-        """Load s2d/x1d FITS pair"""
-        base_dir = os.path.dirname(file_path)
+        """Load s2d/x1d FITS pair, or a single 1D FITS file if no pair is found."""
         base_name = os.path.basename(file_path)
+        s2d_path, x1d_path = None, None
+
         # Determine if this is s2d or x1d and find the pair
         if 's2d' in base_name.lower():
             s2d_path = file_path
-            x1d_path = file_path.replace('s2d', 'x1d').replace('S2D', 'X1D')
-            if not os.path.exists(x1d_path):
-                x1d_path = file_path.replace('_s2d', '_x1d').replace('_S2D', '_X1D')
+            x1d_path_try = file_path.replace('s2d', 'x1d').replace('S2D', 'X1D')
+            if not os.path.exists(x1d_path_try):
+                x1d_path_try = file_path.replace('_s2d', '_x1d').replace('_S2D', '_X1D')
+            if os.path.exists(x1d_path_try):
+                x1d_path = x1d_path_try
         elif 'x1d' in base_name.lower():
             x1d_path = file_path
-            s2d_path = file_path.replace('x1d', 's2d').replace('X1D', 'S2D')
-            if not os.path.exists(s2d_path):
-                s2d_path = file_path.replace('_x1d', '_s2d').replace('_X1D', '_S2D')
-        else:
-            # Try to load single file
-            s2d_path = file_path
-            x1d_path = None
-        # Load s2d data
-        if os.path.exists(s2d_path):
+            s2d_path_try = file_path.replace('x1d', 's2d').replace('X1D', 'S2D')
+            if not os.path.exists(s2d_path_try):
+                s2d_path_try = file_path.replace('_x1d', '_s2d').replace('_X1D', '_S2D')
+            if os.path.exists(s2d_path_try):
+                s2d_path = s2d_path_try
+
+        # If no pair was found, assume the input file is a 1D spectrum
+        if not s2d_path and not x1d_path:
+            x1d_path = file_path
+            s2d_path = None
+
+        # Reset data state
+        self.s2d_data = None
+        self.x1d_wave = None
+        self.x1d_flux = None
+        self.x1d_fluxerr = None
+        self.current_s2d_file = None
+        self.current_x1d_file = None
+
+        # Load s2d data if a path exists for it
+        if s2d_path and os.path.exists(s2d_path):
             self.load_s2d_data(s2d_path)
             self.current_s2d_file = s2d_path
-        # Load x1d data if available
+
+        # Load x1d data if a path exists, otherwise try to extract from 2D
         if x1d_path and os.path.exists(x1d_path):
             self.load_x1d_data(x1d_path)
             self.current_x1d_file = x1d_path
         elif self.s2d_data is not None:
-            # Extract 1D from 2D if no x1d file
             self.extract_1d_from_2d()
+
+        # If after all that we have no 1D data, it's an error.
+        if self.x1d_flux is None:
+            raise ValueError("Could not load a 1D spectrum from the input file.")
+
+        # --- UI Adjustments for 1D/2D mode ---
+        is_1d_only = self.s2d_data is None
+        self.plot_2d.setVisible(not is_1d_only)
+        self.s2d_controls_widget.setVisible(not is_1d_only)
+        self.s2d_label.setVisible(not is_1d_only)
+        if is_1d_only:
+            self.splitter.setSizes([0, 1])  # Collapse the top panel
+            self.resize(self.width(), 550)  # Shorter window
+        else:
+            self.splitter.setSizes([225, 675])  # Restore 1:3 ratio
+            self.resize(self.width(), 900)  # Restore original height
+
         # Try to expand wavelength gaps for alignment
         if self.x1d_wave is not None and self.s2d_data is not None:
             self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data = \
-                self.expand_wavelength_gap(self.x1d_wave, self.x1d_flux, self.x1d_fluxerr,
+                self.expand_wavelength_gap(self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, \
                                            self.s2d_data, expand_wavelength_gap=True)
         # Build the mappers and update axes
         self._build_index_wavelength_mappers()
@@ -1659,11 +1699,34 @@ if __name__ == "__main__":
     from PyQt5 import QtWidgets
     app = QtWidgets.QApplication(sys.argv)
     win = FITSSpectraViewer()
+
+    # Load spectra files from command line arguments if provided
     if len(sys.argv) > 1:
         filename = sys.argv[1]
         try:
             win.load_fits_pair(filename)
         except Exception as e:
             QMessageBox.critical(win, 'Error', f'Failed to load file:\n{e}')
+
+    # Set redshift value z if provided
+    if len(sys.argv) > 2:
+        try:
+            z_val = float(sys.argv[2])
+            win.z_input.setValue(z_val)
+            win._update_emission_lines()
+        except Exception:
+            QMessageBox.critical(win, 'Error', f'Failed to load redshift value:\n{e}')
+
+    # Load emission lines file if provided
+    if len(sys.argv) > 3:
+        emission_lines_file = sys.argv[3]
+        try:
+            parsed = win._parse_emission_lines_file(emission_lines_file)
+            if parsed is not None:
+                win.emission_lines = parsed
+                win._update_emission_lines()
+        except Exception as e:
+            QMessageBox.critical(win, 'Error', f'Failed to load emission lines file:\n{e}')
+
     win.show()
     sys.exit(app.exec_())
