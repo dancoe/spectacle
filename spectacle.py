@@ -94,7 +94,7 @@ class ObservedAxisItem(pg.AxisItem, _NiceTicksMixin):
     """
     def __init__(self, orientation='bottom', idx_to_wave=None, wave_to_idx=None):
         super().__init__(orientation=orientation)
-        self.setLabel("Wavelength", units='μm')
+        self.setLabel("Wavelength (µm)")  # , units='μm' likes to say (kµm)
         self._idx_to_wave = idx_to_wave  # callable: idx(float) -> μm
         self._wave_to_idx = wave_to_idx  # callable: μm -> idx(float)
 
@@ -150,11 +150,11 @@ class ObservedAxisItem(pg.AxisItem, _NiceTicksMixin):
             return super().tickStrings(values, scale, spacing)
         waves = np.array([float(self._idx_to_wave(v)) for v in values])
         out = []
+        delta_wave = waves[1] - waves[0]
         for w in waves:
-            aw = abs(w)
-            if aw >= 1:
+            if delta_wave >= 0.1:
                 s = f"{w:.1f}"
-            elif aw >= 0.1:
+            elif delta_wave >= 0.01:
                 s = f"{w:.2f}"
             else:
                 s = f"{w:.3f}"
@@ -171,7 +171,7 @@ class RestFrameAxisItem(pg.AxisItem, _NiceTicksMixin):
         self._idx_to_wave = idx_to_wave
         self._wave_to_idx = wave_to_idx
         self._get_z = get_z
-        self.setLabel("Rest-λ", units='Å')
+        self.setLabel("Rest Wavelength (Å)")  # , units='Å' likes to say (kÅ)
 
     def set_mappers(self, idx_to_wave, wave_to_idx):
         self._idx_to_wave = idx_to_wave
@@ -839,7 +839,7 @@ class FITSSpectraViewer(QMainWindow):
         # Left side controls
         left_layout = QHBoxLayout()
         # Colormap selection for 2D
-        left_layout.addWidget(QLabel("2D Colormap:"))
+        left_layout.addWidget(QLabel("Colormap:"))
         self.cmap_combo = QComboBox()
         self.cmap_combo.addItems(['RdBu', 'viridis', 'plasma', 'inferno', 'magma', 'cividis'])
         self.cmap_combo.currentTextChanged.connect(self.change_colormap)
@@ -854,13 +854,13 @@ class FITSSpectraViewer(QMainWindow):
         left_layout.addWidget(self.sigma_spin)
         left_layout.addSpacing(14)
         # Show error bars
-        self.show_errors_check = QCheckBox("Show Error Bars")
+        self.show_errors_check = QCheckBox("Show Uncertainty")
         self.show_errors_check.setChecked(True)
         self.show_errors_check.toggled.connect(self.update_display)
         left_layout.addWidget(self.show_errors_check)
         left_layout.addSpacing(14)
         # Autoscale Y on zoom
-        self.autoscale_y_check = QCheckBox("Autoscale Y on Zoom")
+        self.autoscale_y_check = QCheckBox("Autoscale 1D Flux")
         self.autoscale_y_check.setChecked(False)
         self.autoscale_y_check.toggled.connect(self.on_autoscale_toggled)
         left_layout.addWidget(self.autoscale_y_check)
@@ -1247,24 +1247,31 @@ class FITSSpectraViewer(QMainWindow):
             rest_ang = self._rest_from_obs(obs_um)
             # formatting: Å integer if large, else 1 decimal
             if abs(rest_ang) >= 1000:
-                rest_ang_str = f"{rest_ang:,.0f} Å"
+                rest_ang_str = f"{rest_ang:.0f} Å"
             elif abs(rest_ang) >= 100:
                 rest_ang_str = f"{rest_ang:.1f} Å"
             else:
                 rest_ang_str = f"{rest_ang:.2f} Å"
-        if (y is None) or (x is None) or (val2d is None) or (not np.isfinite(val2d)):
-            s2d_val_str = "2D[y,x]: —"
-        else:
-            s2d_val_str = f"2D[y={y:d}, x={x:d}]: {val2d:.4g}"
-        if obs_um is None:
-            obs_str = "observed λ: —"
-        else:
-            obs_str = f"observed λ: {obs_um:.6f} μm"
         if (flux is None) or (not np.isfinite(flux)):
-            flux_str = "flux: —"
+            s2d_val_str = "     2D flux"
         else:
-            flux_str = f"flux: {flux:.4g} Jy"
-        self.s2d_label.setText(f"S2D: {s2d_name} rest wavelength: {rest_ang_str} {s2d_val_str}")
+            s2d_val_str = "         2D flux"
+        if (y is None) or (x is None) or (val2d is None) or (not np.isfinite(val2d)):
+            s2d_val_str += "[y,x]: —"
+        else:
+            s2d_val_str += f"[{y:d}, {x:d}]: {val2d:.4g} MJy/sr"
+        rest_str = "   rest λ:"
+        obs_str  = "    obs λ: "
+        if obs_um is None:
+            obs_str += "—"
+        else:
+            obs_str += f"{obs_um:.4f} μm"
+        flux_str = "     1D flux: "
+        if (flux is None) or (not np.isfinite(flux)):
+            flux_str += "—"
+        else:
+            flux_str += f"{1e6*flux:.4g} µJy"
+        self.s2d_label.setText(f"S2D: {s2d_name} {rest_str} {rest_ang_str} {s2d_val_str}")
         self.x1d_label.setText(f"X1D: {x1d_name} {obs_str} {flux_str}")
 
     def _update_status_clear(self):
@@ -1551,10 +1558,12 @@ class FITSSpectraViewer(QMainWindow):
         # Build list of visible line positions (idx) inside data range
         line_positions = []  # list of (name, rest_A, idx_float)
         for name, rest_A in self.emission_lines:
+            if "Fe" in name or "Ar" in name:
+                continue  # Skip iron and argon lines for clarity
             try:
                 obs_um = (rest_A * (1.0 + z)) / 1e4
                 idx = float(self._wave_to_idx(obs_um))
-                if np.isfinite(idx) and (0.0 <= idx <= float(nx)):
+                if np.isfinite(idx) and (0.0 < idx < float(nx)-1):
                     line_positions.append((name, rest_A, idx))
             except Exception:
                 continue
@@ -1603,8 +1612,8 @@ class FITSSpectraViewer(QMainWindow):
             for ti in self.em_label_items_1d:
                 # TextItem position .pos() gives a QPointF
                 x = ti.pos().x()
-                # Skip labels that are far off-screen to reduce clutter
-                if x < xmin - 0.5 or x > xmax + 0.5:
+                # Skip labels that are off-screen to reduce clutter
+                if x < xmin + 0.5 or x > xmax - 0.5:
                     ti.setVisible(False)
                     continue
                 ti.setVisible(True)
@@ -1617,7 +1626,7 @@ class FITSSpectraViewer(QMainWindow):
             min_sep_px = 60.0  # minimum horizontal separation to keep same row
             levels_px = []  # track last px used per level
             # Base and step as fractions of y-range
-            base_y = ymax - 0.03 * yr
+            base_y = ymax - 0.06 * yr
             step = 0.055 * yr  # bump down ~5.5% of y-range per level
             for px, ti, x in xs:
                 # Find the first level where we have enough horizontal separation
