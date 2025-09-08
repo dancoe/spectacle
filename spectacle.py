@@ -5,12 +5,34 @@ Trackpad gestures:
 - Zoom x (wavelength): 2 fingers up/down
 - Pan x (wavelength): 2 fingers left/right
 - Scale y (flux): 2 fingers pinch
-
 Update (2025-09-08):
 - **Pixel-perfect wavelength alignment** of 2D and 1D:
   We now render both plots in **index space** (x = spectral column index),
   and only the tick labels show wavelength. Each 1D horizontal step spans
   **exactly one 2D pixel column**, matching the method from `show_mos_spectrum.py`.
+
+Update (2025-09-08-b):
+- **Emission line overlays (rest-frame)**: Load a simple text file of rest-frame
+  wavelengths to draw vertical markers and labels. Labels auto-deconflict by
+  bumping down slightly to avoid overlap as you zoom.
+
+  File format (whitespace or tab between columns; header optional):
+
+      name    wavelength
+      Lya    1215.6700
+      [O II]    3727.0635
+      [O II]    3729.8472
+      HB    4862.6739
+      [O III]    4960.2785
+      [O III]    5008.2236
+      Ha    6564.6237
+
+  Notes:
+  - Wavelengths are **rest-frame Angstroms (Å)**. They are converted to observed
+    wavelengths using the current redshift *z* (observed = rest × (1+z)).
+  - Markers are shown on both 1D and 2D panels; labels are drawn on the 1D panel.
+  - Use **Display Controls → Load Lines…** to load a custom file. If not provided,
+    the defaults above are used automatically.
 """
 import sys
 import os
@@ -30,12 +52,22 @@ from astropy.visualization import simple_norm
 import warnings
 warnings.filterwarnings('ignore')
 pg.setConfigOptions(antialias=True, imageAxisOrder='row-major')
-
 min_bins_default = 5  # minimum zoom in x = wavelength (bins in index space)
 min_y_rows_default = 5  # minimum zoom in y for 2D rows
 
+# ------------------------- DEFAULT EMISSION LINES (rest Å) -------------------------
+# These are used when no external file is loaded. See the header doc for format.
+DEFAULT_EMISSION_LINES = [
+    ("Lya", 1215.6700),
+    ("[O II]", 3727.0635),
+    ("[O II]", 3729.8472),
+    ("HB", 4862.6739),
+    ("[O III]", 4960.2785),
+    ("[O III]", 5008.2236),
+    ("Ha", 6564.6237),
+]
 
-# --------------------------- AXES THAT WORK IN INDEX SPACE --------------------
+# ------------------------- AXES THAT WORK IN INDEX SPACE -------------------------
 class _NiceTicksMixin:
     @staticmethod
     def _nice_step(x: float) -> float:
@@ -54,11 +86,9 @@ class _NiceTicksMixin:
             nf = 10.0
         return nf * (10 ** exp)
 
-
 class ObservedAxisItem(pg.AxisItem, _NiceTicksMixin):
     """
     Bottom axis for *observed* wavelength (μm) while the ViewBox X is **index**.
-
     We generate ticks at regular wavelength intervals and map them into
     index positions using provided mapping functions.
     """
@@ -131,11 +161,9 @@ class ObservedAxisItem(pg.AxisItem, _NiceTicksMixin):
             out.append(s)
         return out
 
-
 class RestFrameAxisItem(pg.AxisItem, _NiceTicksMixin):
     """
     Top axis that shows rest-frame wavelength in Å while ViewBox X is **index**.
-
     Requires mapping functions idx->obs μm and obs μm->idx, and a z getter.
     """
     def __init__(self, orientation='top', idx_to_wave=None, wave_to_idx=None, get_z=lambda: 0.0):
@@ -222,8 +250,7 @@ class RestFrameAxisItem(pg.AxisItem, _NiceTicksMixin):
             out.append(s)
         return out
 
-
-# --------------------------- MAIN WIDGETS -------------------------------------
+# ------------------------------- MAIN WIDGETS --------------------------------
 class SpectrumPlotWidget(pg.PlotWidget):
     """Custom plot widget with trackpad gesture support"""
     # Signal emitted when x range changes (1D plot only)
@@ -264,7 +291,7 @@ class SpectrumPlotWidget(pg.PlotWidget):
         self.getViewBox().sigRangeChanged.connect(self.on_range_changed)
 
     def set_data_limits(self, x_min, x_max, y_min=None, y_max=None,
-                        min_dx=None, min_bins=min_bins_default, min_y_rows=None):
+                         min_dx=None, min_bins=min_bins_default, min_y_rows=None):
         """Set the data limits to restrict panning/zooming"""
         self.data_x_min = x_min
         self.data_x_max = x_max
@@ -324,8 +351,8 @@ class SpectrumPlotWidget(pg.PlotWidget):
                     self.addItem(self._alt_region)
                 except Exception:
                     self._alt_region = None
-                ev.accept()
-                return
+            ev.accept()
+            return
         super().mousePressEvent(ev)
 
     def mouseDragEvent(self, ev):
@@ -521,7 +548,6 @@ class SpectrumPlotWidget(pg.PlotWidget):
                     pass
         return super().event(ev)
 
-
 class FITSSpectraViewer(QMainWindow):
     """Main application window for FITS spectra viewing"""
     def __init__(self):
@@ -553,9 +579,17 @@ class FITSSpectraViewer(QMainWindow):
         self._wave_to_idx = None  # callable μm->idx
         # number of spectral columns
         self._nx = None
+        # -------- Emission line state --------
+        self.emission_lines = list(DEFAULT_EMISSION_LINES)  # list of (name, rest_A)
+        self.em_line_items_1d = []  # InfiniteLine items on 1D
+        self.em_label_items_1d = []  # TextItem labels on 1D
+        self.em_line_items_2d = []  # InfiniteLine items on 2D
+        self.show_lines_check = None
+        self.load_lines_btn = None
+
         self.init_ui()
 
-    # -------------------- Alignment helpers --------------------
+    # --------------------------- Alignment helpers ---------------------------
     def _build_index_wavelength_mappers(self):
         """Create callable mappers index<->wavelength given current x1d_wave."""
         if self.x1d_wave is None:
@@ -610,8 +644,7 @@ class FITSSpectraViewer(QMainWindow):
             x1d_flux = np.concatenate([x1d_flux[:igap+1], x1d_fill, x1d_flux[igap+1:]])
             x1d_fluxerr = np.concatenate([x1d_fluxerr[:igap+1], x1d_fill, x1d_fluxerr[igap+1:]])
         return x1d_wave, x1d_flux, x1d_fluxerr, s2d_data
-
-    # -------------------- UI --------------------
+    # --------------------------------- UI ---------------------------------
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle('FITS Spectra Viewer')
@@ -619,13 +652,11 @@ class FITSSpectraViewer(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-
         # Toolbar
         self.create_toolbar()
         # Control panel
         control_panel = self.create_control_panel()
         layout.addWidget(control_panel)
-
         # Splitter for 2D and 1D plots
         splitter = QSplitter(Qt.Vertical)
 
@@ -664,11 +695,11 @@ class FITSSpectraViewer(QMainWindow):
 
         # Set a diverging colormap similar to RdBu
         colors = [
-            (0, 0, 180),      # Dark blue
+            (0, 0, 180),  # Dark blue
             (100, 150, 255),  # Light blue
             (255, 255, 255),  # White
             (255, 150, 100),  # Light red
-            (180, 0, 0)       # Dark red
+            (180, 0, 0)  # Dark red
         ]
         cmap = pg.ColorMap(pos=np.linspace(0.0, 1.0, len(colors)), color=colors)
         self.image_item.setLookupTable(cmap.getLookupTable())
@@ -708,11 +739,15 @@ class FITSSpectraViewer(QMainWindow):
 
         # Sync x axes: 1D -> 2D
         self.plot_1d.x_range_changed.connect(self.sync_x_range_to_2d)
-
         # Track ranges for nav stack
         try:
             self.plot_1d.getViewBox().sigRangeChanged.connect(self._on_any_range_changed)
             self.plot_2d.getViewBox().sigRangeChanged.connect(self._on_any_range_changed)
+        except Exception:
+            pass
+        # Also rerender emission-line labels on 1D range changes (x or y)
+        try:
+            self.plot_1d.getViewBox().sigRangeChanged.connect(self._relayout_emission_labels)
         except Exception:
             pass
 
@@ -723,6 +758,7 @@ class FITSSpectraViewer(QMainWindow):
         self.plot_1d.addItem(self.cursor_dot)
         self.cursor_line.hide()
         self.cursor_dot.hide()
+
         splitter.addWidget(self.plot_1d)
 
         # Alt-selection: set Y-range on 1D
@@ -741,6 +777,7 @@ class FITSSpectraViewer(QMainWindow):
             self.plot_1d.viewport().installEventFilter(self)
         except Exception:
             pass
+
         # Set splitter sizes (1:3 ratio)
         splitter.setSizes([225, 675])
         layout.addWidget(splitter)
@@ -799,7 +836,6 @@ class FITSSpectraViewer(QMainWindow):
         """Create control panel for display options"""
         panel = QGroupBox("Display Controls")
         main_layout = QHBoxLayout()
-
         # Left side controls
         left_layout = QHBoxLayout()
         # Colormap selection for 2D
@@ -833,17 +869,26 @@ class FITSSpectraViewer(QMainWindow):
         left_layout.addWidget(QLabel("z:"))
         self.z_input = QDoubleSpinBox()
         self.z_input.setDecimals(4)
-               # avoid 1+z <= 0
+        # avoid 1+z <= 0
         self.z_input.setRange(-0.99, 12.0)
         self.z_input.setSingleStep(0.001)
         self.z_input.setValue(0.0)
-        # Immediate axis refresh on z change
+        # Immediate axis refresh & emission-line update on z change
         self.z_input.valueChanged.connect(self._refresh_top_axis)
+        self.z_input.valueChanged.connect(lambda *_: self._update_emission_lines())
         left_layout.addWidget(self.z_input)
+        left_layout.addSpacing(14)
+        # Emission-line toggles & loader
+        self.show_lines_check = QCheckBox("Show Emission Lines")
+        self.show_lines_check.setChecked(True)
+        self.show_lines_check.toggled.connect(lambda *_: self._update_emission_lines())
+        left_layout.addWidget(self.show_lines_check)
+        self.load_lines_btn = QPushButton("Load Lines…")
+        self.load_lines_btn.clicked.connect(self.load_emission_lines_file)
+        left_layout.addWidget(self.load_lines_btn)
 
         main_layout.addLayout(left_layout)
         main_layout.addStretch()
-
         # Right side - Gestures / Controls help
         help_text = (
             "X Wavelength: Zoom Scroll ⬆/⬇ ; Pan Scroll ⬅/➡\n"
@@ -853,11 +898,10 @@ class FITSSpectraViewer(QMainWindow):
         gestures_label = QLabel(help_text)
         gestures_label.setStyleSheet("QLabel { color: #666; }")
         main_layout.addWidget(gestures_label)
-
         panel.setLayout(main_layout)
         return panel
 
-    # -------------------- File I/O --------------------
+    # --------------------------- File I/O ---------------------------
     def open_fits_file(self):
         """Open and load FITS file, looking for associated s2d/x1d pair"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -913,8 +957,9 @@ class FITSSpectraViewer(QMainWindow):
             self.obs_axis.set_mappers(self._idx_to_wave, self._wave_to_idx)
         if self.top_axis is not None and self._idx_to_wave is not None:
             self.top_axis.set_mappers(self._idx_to_wave, self._wave_to_idx)
-
         self.update_display()
+        # Emission-line overlays
+        self._update_emission_lines()
         # Update status (filenames)
         status_msg = []
         if self.current_s2d_file:
@@ -989,7 +1034,7 @@ class FITSSpectraViewer(QMainWindow):
         except Exception:
             pass
 
-    # -------------------- Display --------------------
+    # -------------------------------- Display --------------------------------
     def update_display(self):
         """Update both 2D and 1D displays (now in index domain)."""
         if self.s2d_data is None and self.x1d_flux is None:
@@ -997,7 +1042,6 @@ class FITSSpectraViewer(QMainWindow):
         # Preserve current view ranges to avoid resetting on sigma updates
         x1d_rng = self.plot_1d.getViewBox().viewRange() if self._have_plotted else None
         x2d_rng = self.plot_2d.getViewBox().viewRange() if self._have_plotted else None
-
         # Update 2D display
         if self.s2d_data is not None:
             # Sigma clipping for display range
@@ -1036,7 +1080,7 @@ class FITSSpectraViewer(QMainWindow):
             # Flux step curve
             if not hasattr(self, 'flux_curve') or self.flux_curve is None:
                 self.flux_curve = self.plot_1d.plot(x_edges, self.x1d_flux,
-                                                    stepMode=True, pen='w', name='Flux')
+                                                   stepMode=True, pen='w', name='Flux')
             else:
                 self.flux_curve.setData(x_edges, self.x1d_flux, stepMode=True)
             # Error step curve
@@ -1068,7 +1112,6 @@ class FITSSpectraViewer(QMainWindow):
             # Ensure observed-axis tick mappers are set
             if self.obs_axis is not None and self._idx_to_wave is not None:
                 self.obs_axis.set_mappers(self._idx_to_wave, self._wave_to_idx)
-
             # Initial view only on the first draw
             if not self._have_plotted:
                 self.plot_1d.setXRange(0.0, float(nx), padding=0)
@@ -1077,21 +1120,23 @@ class FITSSpectraViewer(QMainWindow):
                 margin = (flux_max - flux_min) * 0.1
                 self.plot_1d.setYRange(min(flux_min - margin, -margin),
                                        flux_max + margin, padding=0)
+            # Restore previous view ranges if already plotted
+            if self._have_plotted:
+                try:
+                    if x1d_rng is not None:
+                        self.plot_1d.getViewBox().setXRange(*x1d_rng[0], padding=0)
+                        self.plot_1d.getViewBox().setYRange(*x1d_rng[1], padding=0)
+                    if x2d_rng is not None:
+                        self.plot_2d.getViewBox().setXRange(*x2d_rng[0], padding=0)
+                        self.plot_2d.getViewBox().setYRange(*x2d_rng[1], padding=0)
+                except Exception:
+                    pass
+            else:
+                self._have_plotted = True
+                self._push_nav_state()
 
-        # Restore previous view ranges if already plotted
-        if self._have_plotted:
-            try:
-                if x1d_rng is not None:
-                    self.plot_1d.getViewBox().setXRange(*x1d_rng[0], padding=0)
-                    self.plot_1d.getViewBox().setYRange(*x1d_rng[1], padding=0)
-                if x2d_rng is not None:
-                    self.plot_2d.getViewBox().setXRange(*x2d_rng[0], padding=0)
-                    self.plot_2d.getViewBox().setYRange(*x2d_rng[1], padding=0)
-            except Exception:
-                pass
-        else:
-            self._have_plotted = True
-            self._push_nav_state()
+        # After any redraw, ensure emission line labels are laid out
+        self._relayout_emission_labels()
 
     def sync_x_range_to_2d(self, xmin, xmax):
         """Synchronize 2D plot x range with 1D plot (index domain)."""
@@ -1115,6 +1160,8 @@ class FITSSpectraViewer(QMainWindow):
                 margin = (flux_max - flux_min) * 0.1
                 self.plot_1d.setYRange(min(flux_min - margin, -margin),
                                        flux_max + margin, padding=0)
+        # Relayout labels when x-range changes
+        self._relayout_emission_labels()
 
     def _on_2d_range_changed(self):
         """When 2D viewbox changes, keep 1D X in sync."""
@@ -1160,6 +1207,7 @@ class FITSSpectraViewer(QMainWindow):
             self.plot_2d.getViewBox().setYRange(*st['x2d_y'], padding=0)
         finally:
             self._is_restoring = False
+
     def nav_back(self):
         if self._nav_index > 0:
             self._nav_index -= 1
@@ -1176,7 +1224,7 @@ class FITSSpectraViewer(QMainWindow):
             xmin, xmax = self.plot_1d.getViewBox().viewRange()[0]
             self.sync_x_range_to_2d(xmin, xmax)
 
-    # -------------------- HOVER & STATUS ROWS --------------------
+    # ----------------------- HOVER & STATUS ROWS -----------------------
     def _basename_or_dash(self, path):
         return os.path.basename(path) if path else "—"
 
@@ -1228,7 +1276,6 @@ class FITSSpectraViewer(QMainWindow):
         try:
             if x_idx is None or not np.isfinite(x_idx):
                 return
-            #x_idx = self._bin_center(x_xdx)
             self.cursor_line.setPos(float(x_idx))
             if (flux_val is not None) and np.isfinite(flux_val):
                 self.cursor_dot.setData([float(x_idx)], [float(flux_val)])
@@ -1282,12 +1329,10 @@ class FITSSpectraViewer(QMainWindow):
                 self._update_status_clear()
                 return
             nx = len(self.x1d_wave)
-            #ix = int(np.clip(int(round(x)), 0, nx - 1))
             ix = self._col_from_x(x)
             wave = float(self.x1d_wave[ix])
             flux = float(self.x1d_flux[ix]) if ix < len(self.x1d_flux) else np.nan
             # Update cursor on 1D (at index)
-            #self._show_cursor_at(ix, flux)
             self._show_cursor_at(self._bin_center(ix), flux)
             # Update two-row status
             self._update_status(obs_um=wave, flux=flux, y=None, x=ix, val2d=None)
@@ -1317,7 +1362,6 @@ class FITSSpectraViewer(QMainWindow):
                 self._hide_cursor()
                 self._update_status_clear()
                 return
-            #ix = int(np.clip(int(round(x)), 0, nx - 1))
             ix = self._col_from_x(x)
             iy = int(np.clip(int(round(y)), 0, ny - 1))
             val = self.s2d_data[iy, ix]
@@ -1328,7 +1372,6 @@ class FITSSpectraViewer(QMainWindow):
             if self.x1d_wave is not None:
                 wave = float(self.x1d_wave[ix])
             # Update cursor on 1D at that index
-            #self._show_cursor_at(ix, flux)
             self._show_cursor_at(self._bin_center(ix), flux)
             # Update the two-row status (both rows populated)
             self._update_status(obs_um=wave, flux=flux, y=iy, x=ix, val2d=val)
@@ -1347,7 +1390,7 @@ class FITSSpectraViewer(QMainWindow):
         # continue normal processing
         return False
 
-    # -------------------- Misc --------------------
+    # ------------------------------ Misc ------------------------------
     def change_colormap(self, cmap_name):
         """Change 2D colormap"""
         if cmap_name == 'RdBu':
@@ -1390,6 +1433,8 @@ class FITSSpectraViewer(QMainWindow):
         # also clear hover indicators after reset
         self._hide_cursor()
         self._update_status_clear()
+        # Relayout labels after reset
+        self._relayout_emission_labels()
 
     def autoscale(self):
         """Autoscale displays"""
@@ -1407,14 +1452,198 @@ class FITSSpectraViewer(QMainWindow):
         except Exception:
             pass
 
+    # ---------------------- Emission Line Overlays ----------------------
+    def _parse_emission_lines_file(self, path):
+        """Parse a simple two-column text file: name [TAB/space] wavelength(Å)."""
+        lines = []
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                for raw in f:
+                    s = raw.strip()
+                    if not s:
+                        continue
+                    if s.startswith('#'):
+                        continue
+                    # Skip header if present
+                    low = s.lower()
+                    if ('name' in low) and ('wave' in low or 'λ' in low):
+                        continue
+                    if '\t' in s:
+                        parts = s.split('\t')
+                    else:
+                        # split by whitespace, but allow spaces inside the name by taking last token as wavelength
+                        parts = s.rsplit(None, 1)
+                    if len(parts) < 2:
+                        continue
+                    name = parts[0].strip()
+                    # If there were more than 2 parts (tabbed file with extra tabs), recombine all but last
+                    if '\t' in s and len(parts) > 2:
+                        name = '\t'.join(parts[:-1]).strip()
+                    try:
+                        wav = float(parts[-1])
+                    except Exception:
+                        continue
+                    lines.append((name, wav))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to read lines file:\n{e}')
+            return None
+        if not lines:
+            QMessageBox.warning(self, 'Empty file', 'No emission lines found in the selected file.')
+            return None
+        return lines
 
+    def load_emission_lines_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            'Load Emission Lines',
+            '',
+            'Text Files (*.txt *.dat *.tsv *.csv);;All Files (*.*)')
+        if not path:
+            return
+        parsed = self._parse_emission_lines_file(path)
+        if parsed is None:
+            return
+        self.emission_lines = parsed
+        self._update_emission_lines()
+
+    def _clear_emission_overlays(self):
+        # Remove existing items from plots
+        for it in self.em_line_items_1d:
+            try:
+                self.plot_1d.removeItem(it)
+            except Exception:
+                pass
+        for it in self.em_label_items_1d:
+            try:
+                self.plot_1d.removeItem(it)
+            except Exception:
+                pass
+        for it in self.em_line_items_2d:
+            try:
+                self.plot_2d.removeItem(it)
+            except Exception:
+                pass
+        self.em_line_items_1d = []
+        self.em_label_items_1d = []
+        self.em_line_items_2d = []
+
+    def _update_emission_lines(self):
+        """Recreate emission line markers and labels according to current z and mapping."""
+        # Clear prior overlays
+        self._clear_emission_overlays()
+        # Pre-conditions
+        if not self.show_lines_check or not self.show_lines_check.isChecked():
+            return
+        if self.emission_lines is None or len(self.emission_lines) == 0:
+            return
+        if self._wave_to_idx is None or self._idx_to_wave is None:
+            return
+        # Compute observed positions in μm and then index
+        try:
+            z = float(self.z_input.value()) if self.z_input else 0.0
+        except Exception:
+            z = 0.0
+        z = max(z, -0.99)
+        nx = self._nx if self._nx is not None else (len(self.x1d_wave) if self.x1d_wave is not None else 0)
+        if nx == 0:
+            return
+
+        # Build list of visible line positions (idx) inside data range
+        line_positions = []  # list of (name, rest_A, idx_float)
+        for name, rest_A in self.emission_lines:
+            try:
+                obs_um = (rest_A * (1.0 + z)) / 1e4
+                idx = float(self._wave_to_idx(obs_um))
+                if np.isfinite(idx) and (0.0 <= idx <= float(nx)):
+                    line_positions.append((name, rest_A, idx))
+            except Exception:
+                continue
+        if not line_positions:
+            return
+        # Sort by x index for stable labeling
+        line_positions.sort(key=lambda t: t[2])
+
+        # Draw vertical lines on 1D and 2D
+        pen = pg.mkPen('#ffd400', width=1, style=Qt.DashLine)  # yellow
+        for name, rest_A, idx in line_positions:
+            ln1 = pg.InfiniteLine(pos=float(idx), angle=90, pen=pen)
+            self.plot_1d.addItem(ln1)
+            self.em_line_items_1d.append(ln1)
+            if self.s2d_data is not None:
+                ln2 = pg.InfiniteLine(pos=float(idx), angle=90, pen=pen)
+                self.plot_2d.addItem(ln2)
+                self.em_line_items_2d.append(ln2)
+
+        # Create labels on 1D; positions will be laid out in _relayout_emission_labels
+        for name, rest_A, idx in line_positions:
+            # Label shows the name; you could also show rest if desired
+            html = f"<span style='color:#000; background-color: rgba(255,212,0,0.85); padding:1px 3px; border-radius:2px;'>{name}</span>"
+            ti = pg.TextItem(html=html, anchor=(0.5, 1.0))  # center above the x position
+            self.plot_1d.addItem(ti)
+            # Temporarily position; final layout handled below
+            ti.setPos(float(idx), 0.0)
+            self.em_label_items_1d.append(ti)
+
+        # Final layout based on current viewbox
+        self._relayout_emission_labels()
+
+    def _relayout_emission_labels(self, *args):
+        """Place emission-line labels near the top of the current view and stagger
+        them vertically if their x positions would overlap in screen pixels."""
+        if not self.em_label_items_1d:
+            return
+        try:
+            vb = self.plot_1d.getViewBox()
+            (xmin, xmax), (ymin, ymax) = vb.viewRange()
+            px_w = max(self.plot_1d.viewport().width(), 1)
+            yr = max(ymax - ymin, 1e-9)
+            # Compute x positions for labels from their attached InfiniteLines/known order
+            # Build list of (px, TextItem)
+            xs = []
+            for ti in self.em_label_items_1d:
+                # TextItem position .pos() gives a QPointF
+                x = ti.pos().x()
+                # Skip labels that are far off-screen to reduce clutter
+                if x < xmin - 0.5 or x > xmax + 0.5:
+                    ti.setVisible(False)
+                    continue
+                ti.setVisible(True)
+                px = (x - xmin) / max(xmax - xmin, 1e-9) * px_w
+                xs.append((px, ti, x))
+            if not xs:
+                return
+            xs.sort(key=lambda t: t[0])
+            # Greedy stacking: maintain last px per level
+            min_sep_px = 60.0  # minimum horizontal separation to keep same row
+            levels_px = []  # track last px used per level
+            # Base and step as fractions of y-range
+            base_y = ymax - 0.03 * yr
+            step = 0.055 * yr  # bump down ~5.5% of y-range per level
+            for px, ti, x in xs:
+                # Find the first level where we have enough horizontal separation
+                level = 0
+                placed = False
+                for li, last_px in enumerate(levels_px):
+                    if abs(px - last_px) >= min_sep_px:
+                        level = li
+                        levels_px[li] = px
+                        placed = True
+                        break
+                if not placed:
+                    levels_px.append(px)
+                    level = len(levels_px) - 1
+                y = base_y - level * step
+                ti.setPos(float(x), float(y))
+        except Exception:
+            pass
+
+# ------------------------------ MAIN ------------------------------
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     viewer = FITSSpectraViewer()
     viewer.show()
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     import sys
