@@ -9,12 +9,13 @@ Trackpad gestures:
 
 import sys
 import os
+import argparse
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QFileDialog, QLabel,
                              QSplitter, QStatusBar, QToolBar, QAction,
                              QComboBox, QSpinBox, QCheckBox, QGroupBox,
-                             QSlider, QMessageBox)
+                             QSlider, QMessageBox, QGraphicsRectItem)
 from PyQt5.QtCore import Qt, QPointF, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QKeySequence
 import pyqtgraph as pg
@@ -32,6 +33,8 @@ class SpectrumPlotWidget(pg.PlotWidget):
     
     # Signal emitted when x range changes
     x_range_changed = pyqtSignal(float, float)
+    # Signal emitted when Alt-drag selects a Y range (ymin, ymax)
+    alt_selected = pyqtSignal(float, float)
     
     def __init__(self, parent=None, is_2d=False):
         super().__init__(parent)
@@ -74,6 +77,80 @@ class SpectrumPlotWidget(pg.PlotWidget):
             mouse_point = self.getViewBox().mapSceneToView(ev.pos())
             self.mouse_x_pos = mouse_point.x()
         super().mouseMoveEvent(ev)
+
+    def mousePressEvent(self, ev):
+        # Support Alt/Option-drag to select a Y range spanning all X
+        modifiers = QApplication.keyboardModifiers()
+        if modifiers == Qt.AltModifier and ev.button() == Qt.LeftButton:
+            if self.sceneBoundingRect().contains(ev.pos()):
+                self._alt_drag_start = ev.pos()
+                # create a rect item for visual feedback
+                try:
+                    scene = self.scene()
+                    self._alt_rect = QGraphicsRectItem()
+                    pen = pg.mkPen('y', width=1)
+                    self._alt_rect.setPen(pen)
+                    scene.addItem(self._alt_rect)
+                except Exception:
+                    self._alt_rect = None
+                ev.accept()
+                return
+        super().mousePressEvent(ev)
+
+    
+    def mouseDragEvent(self, ev):
+        """Handle drag events to allow panning but constrain to data limits and emit x_range_changed."""
+        # Let default behavior perform the drag/pan
+        try:
+            super().mouseDragEvent(ev)
+        except Exception:
+            pass
+        # Constrain ranges after drag
+        try:
+            if self.data_x_min is not None and self.data_x_max is not None:
+                xmin, xmax = self.getViewBox().viewRange()[0]
+                xmin = max(xmin, self.data_x_min)
+                xmax = min(xmax, self.data_x_max)
+                self.getViewBox().setXRange(xmin, xmax, padding=0)
+            if self.data_y_min is not None and self.data_y_max is not None:
+                ymin, ymax = self.getViewBox().viewRange()[1]
+                ymin = max(ymin, self.data_y_min)
+                ymax = min(ymax, self.data_y_max)
+                self.getViewBox().setYRange(ymin, ymax, padding=0)
+            xmin, xmax = self.getViewBox().viewRange()[0]
+            try:
+                self.x_range_changed.emit(xmin, xmax)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    def mouseReleaseEvent(self, ev):
+        modifiers = QApplication.keyboardModifiers()
+        if hasattr(self, '_alt_drag_start') and self._alt_drag_start is not None:
+            start = self._alt_drag_start
+            end = ev.pos()
+            if start != end:
+                # map to view coordinates and emit alt_selected with ymin,ymax
+                vb = self.getViewBox()
+                p1 = vb.mapSceneToView(start)
+                p2 = vb.mapSceneToView(end)
+                ymin = min(p1.y(), p2.y())
+                ymax = max(p1.y(), p2.y())
+                # emit so parent can set 1D y-range spanning all x
+                try:
+                    self.alt_selected.emit(ymin, ymax)
+                except Exception:
+                    pass
+            # remove visual rect
+            try:
+                if hasattr(self, '_alt_rect') and self._alt_rect is not None:
+                    self.scene().removeItem(self._alt_rect)
+            except Exception:
+                pass
+            self._alt_drag_start = None
+            ev.accept()
+            return
+        super().mouseReleaseEvent(ev)
         
     def wheelEvent(self, ev):
         """Handle trackpad/mouse wheel events for zoom and pan"""
@@ -141,7 +218,7 @@ class SpectrumPlotWidget(pg.PlotWidget):
                 
                 vb.setXRange(new_xmin, new_xmax, padding=0)
                 
-        elif modifiers == Qt.ControlModifier and not self.is_2d:
+        elif modifiers == Qt.ControlModifier:
             # Ctrl + scroll: Scale Y (flux) - simulating pinch (only for 1D)
             if abs(dy) > 0:
                 scale_factor = 1.1 ** (-dy)
@@ -178,6 +255,9 @@ class FITSSpectraViewer(QMainWindow):
         self.x1d_fluxerr = None
         self.current_s2d_file = None
         self.current_x1d_file = None
+
+        # default redshift for rest-frame display
+        self.z_input = None
         
         # For cursor tracking
         self.cursor_line = None
@@ -186,6 +266,29 @@ class FITSSpectraViewer(QMainWindow):
         
         self.init_ui()
         
+    def expand_wavelength_gap(self, x1d_wave, x1d_flux, x1d_fluxerr, s2d_data, expand_wavelength_gap=True):
+        """Detect large wavelength gaps in 1D and insert NaNs into 1D flux and 2D data to keep alignment."""
+        if not expand_wavelength_gap or x1d_wave is None or s2d_data is None:
+            return x1d_wave, x1d_flux, x1d_fluxerr, s2d_data
+        dx1d_wave = x1d_wave[1:] - x1d_wave[:-1]
+        igap = np.argmax(dx1d_wave)
+        dx1d_max = np.max(dx1d_wave)
+        # heuristic neighbor dx
+        left = dx1d_wave[igap-1] if igap-1 >=0 else dx1d_wave[igap]
+        right = dx1d_wave[igap+1] if igap+1 < len(dx1d_wave) else dx1d_wave[igap]
+        dx_replace = (left + right) / 2.
+        num_fill = int(np.round(dx1d_max / dx_replace))
+        if num_fill > 1 and dx1d_max > 1.5 * dx_replace:
+            wave_fill = np.mgrid[x1d_wave[igap]: x1d_wave[igap+1]: (num_fill+1)*1j]
+            x1d_wave = np.concatenate([x1d_wave[:igap+1], wave_fill[1:-1], x1d_wave[igap+1:]])
+            num_rows, num_waves = s2d_data.shape
+            s2d_fill = np.zeros(shape=(num_rows, num_fill-1)) * np.nan
+            s2d_data = np.concatenate([s2d_data[:, :igap+1], s2d_fill, s2d_data[:, igap+1:]], axis=1)
+            x1d_fill = np.zeros(shape=(num_fill-1)) * np.nan
+            x1d_flux = np.concatenate([x1d_flux[:igap+1], x1d_fill, x1d_flux[igap+1:]])
+            x1d_fluxerr = np.concatenate([x1d_fluxerr[:igap+1], x1d_fill, x1d_fluxerr[igap+1:]])
+        return x1d_wave, x1d_flux, x1d_fluxerr, s2d_data
+
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle('FITS Spectra Viewer')
@@ -225,12 +328,22 @@ class FITSSpectraViewer(QMainWindow):
         self.image_item.setLookupTable(cmap.getLookupTable())
         
         splitter.addWidget(self.plot_2d)
+        # connect 2D hover to update coordinates
+        try:
+            self.plot_2d.scene().sigMouseMoved.connect(self._on_2d_mouse_moved)
+        except Exception:
+            pass
         
         # 1D spectrum display
         self.plot_1d = SpectrumPlotWidget()
         
         # Connect range change signal to sync x axes
         self.plot_1d.x_range_changed.connect(self.sync_x_range_to_2d)
+        try:
+            self.plot_2d.x_range_changed.connect(lambda xmin,xmax: self.plot_1d.setXRange(xmin,xmax,padding=0))
+        except Exception:
+            pass
+
         
         # Add cursor tracking
         self.plot_1d.scene().sigMouseMoved.connect(self.on_mouse_moved)
@@ -244,6 +357,11 @@ class FITSSpectraViewer(QMainWindow):
         self.cursor_dot.hide()
         
         splitter.addWidget(self.plot_1d)
+        try:
+            self.plot_1d.alt_selected.connect(lambda ymin,ymax: self.plot_1d.setYRange(ymin,ymax,padding=0))
+            self.plot_2d.alt_selected.connect(lambda ymin,ymax: self.plot_1d.setYRange(ymin,ymax,padding=0))
+        except Exception:
+            pass
         
         # Set splitter sizes (1:3 ratio as in original)
         splitter.setSizes([225, 675])
@@ -388,6 +506,8 @@ class FITSSpectraViewer(QMainWindow):
             # Extract 1D from 2D if no x1d file
             self.extract_1d_from_2d()
             
+        self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data = self.expand_wavelength_gap(self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data, expand_wavelength_gap=True)
+
         self.update_display()
         
         # Update status
@@ -456,6 +576,12 @@ class FITSSpectraViewer(QMainWindow):
         self.x1d_flux = np.nansum(self.s2d_data[ystart:ystop, :], axis=0)
         self.x1d_wave = np.linspace(1.0, 5.5, nx)  # Default wavelength range
         self.x1d_fluxerr = np.abs(self.x1d_flux) * 0.1  # 10% error estimate
+        # Try to detect and expand wavelength gaps so 1D and 2D align
+        try:
+            self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data = self.expand_wavelength_gap(self.x1d_wave, self.x1d_flux, self.x1d_fluxerr, self.s2d_data, expand_wavelength_gap=True)
+            ny, nx = self.s2d_data.shape
+        except Exception:
+            pass
         
     def update_display(self):
         """Update both 2D and 1D displays"""
@@ -614,6 +740,45 @@ class FITSSpectraViewer(QMainWindow):
             self.plot_1d.setYRange(min(flux_min - margin, -margin), 
                                   flux_max + margin, padding=0)
         
+    
+    def _on_2d_mouse_moved(self, pos):
+        # pos is a QPointF in scene coordinates - map to view
+        try:
+            vb = self.plot_2d.getViewBox()
+            mouse_point = vb.mapSceneToView(pos)
+            x = mouse_point.x()
+            y = mouse_point.y()
+            if self.x1d_wave is not None and self.s2d_data is not None:
+                # map to nearest indices (use center of step = x1d_wave)
+                ix = np.argmin(np.abs(self.x1d_wave - x))
+                iy = int(round(y))
+                ny, nx = self.s2d_data.shape
+                if ix >= 0 and ix < nx and iy >= 0 and iy < ny:
+                    val = self.s2d_data[iy, ix]
+                    # update coord label
+                    try:
+                        f1 = self.x1d_flux[ix] if self.x1d_flux is not None else np.nan
+                        self.coord_label.setText(f"λ: {x:.6f}  Flux1D: {f1:.4g}  2D[{iy},{ix}]: {val:.4g}")
+                    except Exception:
+                        self.coord_label.setText(f"λ: {x:.6f}")
+                    # move cursor on 1D to center of step
+                    try:
+                        if self.cursor_line is not None and self.cursor_dot is not None:
+                            cx = self.x1d_wave[ix]
+                            self.cursor_line.setPos(cx)
+                            self.cursor_line.show()
+                            # set dot to flux value if available
+                            if self.x1d_flux is not None and ix < len(self.x1d_flux):
+                                self.cursor_dot.setData([cx], [self.x1d_flux[ix]])
+                                self.cursor_dot.show()
+                    except Exception:
+                        pass
+                    return
+            # fallback
+            self.coord_label.setText(f"λ: {x:.6f}")
+        except Exception:
+            pass
+            
     def autoscale(self):
         """Autoscale displays"""
         self.reset_views()
@@ -627,5 +792,19 @@ def main():
     sys.exit(app.exec_())
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    import sys
+    from PyQt5 import QtWidgets
+
+    app = QtWidgets.QApplication(sys.argv)
+    win = FITSSpectraViewer()
+
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+        try:
+            win.load_fits_pair(filename)
+        except Exception as e:
+            QMessageBox.critical(win, 'Error', f'Failed to load file:\n{e}')
+
+    win.show()
+    sys.exit(app.exec_())
