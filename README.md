@@ -171,7 +171,7 @@ python spectacle.py my_spectrum_s2d.fits --annotate my_annotations.py
 
 Developed by Dan Coe, coded by AI for free using:
 - **Claude Opus 4.1** via app (3 free uses)
-- **Gemini 2.5 Pro** in VSCode
+- **Gemini 2.5 Pro** in <a href=https://aistudio.google.com/>Google AI Studio</a> and <a href=https://code.visualstudio.com>VSCode</a>
 - **ChatGPT-5** via app and Microsoft Copilot at STScI
 
 With thanks to Tom Resseguier (JHU) for introducing me to PyQt!
