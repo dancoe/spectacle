@@ -2,9 +2,16 @@
 
 A lightweight, interactive FITS spectrum viewer built with **PyQt5** and **pyqtgraph**.
 
-Spectacle allows for smooth, intuitive exploration of astronomical spectra. Originally designed for JWST NIRSpec MOS data, it excels at displaying and synchronizing 2D rectified spectra (`s2d.fits`) and 1D extractions (`x1d.fits`). It can also be used as a general-purpose viewer for any 1D FITS spectrum.
+Quickly and smoothly scroll and zoom through synced 2D and 1D spectra. 
+Perform new 1D extractions on the fly.
 
-What's in your spectra? See it all with Spectacle.
+Originally designed for JWST NIRSpec MOS data, **Spectacle** loads and syncs:
+* `s2d.fits` 2D rectified spectra
+* `x1d.fits` 1D extractions 
+
+It can also be used as a general-purpose viewer for any 1D or 2D FITS spectrum (not yet tested).
+
+*What's in your spectra? See it all with Spectacle!*
 
 ---
 
@@ -21,7 +28,7 @@ What's in your spectra? See it all with Spectacle.
     *   Helper buttons to automatically find the **Peak** signal or the geometric **Center**.
     *   Customizable colors for each extraction.
 *   **Save & Load State**: Save your entire session—including file paths, view ranges, redshift, and extraction settings—to a `.json` file. Restore your session instantly by opening the state file.
-*   **Save High-Quality Plots**: Export the current view of the 1D, 2D, or a combined plot to **PNG** or **PDF** formats.
+*   **Save Plots as PNG/PDF**: Export the current view of the 1D, 2D, or a combined plot to **PNG** or **PDF** formats.
 *   **Custom Annotation**: Use an external Python script to add custom annotations (lines, text, markers) to your plots for detailed analysis.
 *   **Intuitive Controls**: Navigate your data efficiently with trackpad gestures and keyboard shortcuts.
 *   **Emission Line Overlays**: Display common emission lines, automatically shifted by a user-provided redshift. Load your own custom line lists.
@@ -72,11 +79,11 @@ python spectacle.py
 # Open a 2D spectrum (will auto-detect and load the corresponding x1d file)
 python spectacle.py jw02736-o007_s06355_nirspec_f290lp-g395m_s2d.fits
 
+# Open a spectrum, set initial redshift, and load a custom line list
+python spectacle.py jw02736-o007_s06355_nirspec_f290lp-g395m_s2d.fits -z 7.665 --lines emission\ lines.txt
+
 # Open a 1D spectrum by itself
 python spectacle.py my_1d_spectrum.fits
-
-# Open a spectrum, set initial redshift, and load a custom line list
-python spectacle.py file_s2d.fits -z 7.665 --lines my_lines.txt
 
 # Restore a previously saved session
 python spectacle.py spectacle_session.json
@@ -114,11 +121,15 @@ To resume your session, simply open the `.json` file with Spectacle.
 
 ### Manual Extractions
 
-The "1D Extractions" panel allows you to perform your own simple analysis.
-*   **Manual 1**: Defaults to finding the **Peak** signal in the current view when first enabled.
-*   **Manual 2**: Defaults to the geometric **Center** of the 2D detector.
-*   The `Peak` and `Center` buttons will remain in a "pressed" state until you manually adjust the rows by dragging the region or changing the spin box values. This provides a visual cue for how the region was last set.
-*   The start/stop rows are constrained to prevent the region from inverting or collapsing.
+The "1D Extractions" panel allows you to perform your own simple boxcar extractions, summing across rows (6 by default):
+*   **#1**: Defaults to finding the **Peak** signal in the current view when first enabled.
+*   **#2**: Defaults to the geometric **Center** rows of the 2D extraction.
+
+Move and stretch the regions as desired.
+Extraction widths default to the standard calibrated 6 pixel rows, but can be adjusted.
+
+*These are standard boxcar extractions. Weighted / Optimal extractions TBD.*
+
 
 ### Custom Annotation Scripts
 
