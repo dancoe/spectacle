@@ -1,0 +1,61 @@
+{
+  "files": {
+    "s2d": "jw02736-o007_s06355_nirspec_f290lp-g395m_s2d.fits",
+    "x1d": "jw02736-o007_s06355_nirspec_f290lp-g395m_x1d.fits"
+  },
+  "redshift": 7.665,
+  "sigma_clip": 5,
+  "colormap": "RdBu",
+  "show_errors": true,
+  "autoscale_y": false,
+  "show_lines": true,
+  "view_ranges": {
+    "1d": {
+      "x": [
+        736.9718647081555,
+        870.4739305477401
+      ],
+      "y": [
+        -4.177305492697384e-06,
+        2.733589113428309e-05
+      ]
+    },
+    "2d": {
+      "x": [
+        736.9718647081555,
+        870.4739305477401
+      ],
+      "y": [
+        0.0,
+        41.0
+      ]
+    }
+  },
+  "spectra_sources": [
+    {
+      "type": "x1d",
+      "visible": true,
+      "color": "#000000"
+    },
+    {
+      "type": "manual",
+      "visible": true,
+      "color": "#00de00",
+      "rows": [
+        22,
+        27
+      ],
+      "width": 6
+    },
+    {
+      "type": "manual",
+      "visible": true,
+      "color": "#8b4513",
+      "rows": [
+        18,
+        23
+      ],
+      "width": 6
+    }
+  ]
+}
